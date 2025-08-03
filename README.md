@@ -12,7 +12,7 @@ This repository contains a simple Kivy application that wraps Google’s Agent D
 ## File layout
 
 ```
-kivy_adk_app/
+autoyou_mobile_app/
 ├── adk_agent/
 │   ├── __init__.py       – exposes the `root_agent` object for ADK
 │   └── agent.py         – defines the `hello_agent` and callback
@@ -52,11 +52,11 @@ python3 -m pip install -r requirements.txt
 # Build the required recipes
 python3 toolchain.py build python3 kivy pygments openssl certifi pillow sdl2_image sdl2_mixer sdl2_ttf
 
-# Create an Xcode project for the app.  Replace /path/to/kivy_adk_app with the actual path.
-python3 toolchain.py create ios kivy_adk_app /path/to/kivy_adk_app
+# Create an Xcode project for the app.  Replace /path/to/autoyou_mobile_app with the actual path.
+python3 toolchain.py create ios autoyou_mobile_app /path/to/autoyou_mobile_app
 
 # Open the generated Xcode project and run on the simulator or device
-open apps/kivy_adk_app-ios/kivy_adk_app.xcodeproj
+open apps/autoyou_mobile_app-ios/autoyou_mobile_app.xcodeproj
 ```
 
 For convenience a minimal `buildozer.spec` is also provided, although it is **not** required for packaging through `kivy‑ios`.  It demonstrates the necessary requirements and can be used to build an iOS package if you prefer Buildozer on macOS.

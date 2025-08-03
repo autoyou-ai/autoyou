@@ -1,7 +1,7 @@
 """robinhood_login_agent for logging successfully to robinhood account and ensuring account details are accessible"""
 
 import os
-from dotenv import load_dotenv
+import keyring
 
 from google.adk import Agent
 from google.adk.tools import ToolContext
@@ -11,15 +11,17 @@ import robin_stocks.robinhood as r
 from . import prompt
 
 
-# Load environment variables
-load_dotenv()
+# Keyring service and key constants (matching main.py)
+SERVICE_NAME = "autoyou_mobile_app"
+KEY_USERNAME = "robinhood_username"
+KEY_PASSWORD = "robinhood_password"
 
 def peform_robinhood_login(tool_context: ToolContext) -> str:
     """
     Perform login to robinhood account
     """
-    username = os.getenv("ROBINHOOD_USERNAME")
-    password = os.getenv("ROBINHOOD_PASSWORD")
+    username = keyring.get_password(SERVICE_NAME, KEY_USERNAME)
+    password = keyring.get_password(SERVICE_NAME, KEY_PASSWORD)
 
     login = r.login(username, password)
     tool_context.state["robinhood_login"] = login

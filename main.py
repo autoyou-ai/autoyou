@@ -28,7 +28,7 @@ Key implementation details:
   platform‑specific secure storage (e.g. Keychain on iOS/macOS).
   Fields are left empty if no value has been saved yet. When the
   user taps "Save", the values are persisted under the service name
-  ``kivy_adk_app`` and unique keys for each field.
+  ``autoyou_mobile_app`` and unique keys for each field.
 * The WebView is provided by the `kivy_garden.webview` garden widget.
   It points to `http://localhost:8000` by default. If the ADK
   process fails to start or is slow, the user may see a blank page
@@ -90,7 +90,7 @@ except ImportError:
     pywebview = None
 
 
-SERVICE_NAME = "kivy_adk_app"
+SERVICE_NAME = "autoyou_mobile_app"
 KEY_USERNAME = "robinhood_username"
 KEY_PASSWORD = "robinhood_password"
 KEY_OTP = "robinhood_otp"
@@ -404,18 +404,41 @@ class SettingsScreen(Screen):
 
     def on_save(self, instance):
         """Persist the credentials and navigate to home."""
+        google_api_key = None
+        
         for key, input_field in self.inputs.items():
             value = input_field.text.strip()
             if value:
                 keyring.set_password(SERVICE_NAME, key, value)
+                # Store Google API key for .env file update
+                if key == KEY_API_KEY:
+                    google_api_key = value
             else:
                 # If the user clears a field, remove it from the keyring
                 try:
                     keyring.delete_password(SERVICE_NAME, key)
                 except keyring.errors.PasswordDeleteError:
                     pass
+        
+        # Update .env file in autoyou_agent directory if Google API key is provided
+        if google_api_key:
+            self._update_env_file(google_api_key)
+        
         app: KivyAdkApp = App.get_running_app()  # type: ignore[assignment]
         app.manager.current = "home"
+    
+    def _update_env_file(self, google_api_key: str):
+        """Update or create .env file in autoyou_agent directory with Google API key."""
+        env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "autoyou_agent", ".env")
+        
+        # Content for the .env file
+        env_content = f"GOOGLE_API_KEY='{google_api_key}'\nROOT_AGENT_MODEL='gemini-2.5-flash'\n"
+        
+        try:
+            with open(env_path, "w", encoding="utf-8") as f:
+                f.write(env_content)
+        except Exception as e:
+            print(f"Error writing .env file: {e}")
 
 
 class HomeScreen(Screen):
