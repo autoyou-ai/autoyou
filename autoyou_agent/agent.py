@@ -1,7 +1,11 @@
 import os
 import datetime
+from dotenv import load_dotenv
 from google.adk.agents import Agent
 from google.adk.agents.callback_context import CallbackContext
+
+# Load environment variables
+load_dotenv()
 
 from . import prompt
 from .sub_agents.robinhood_login import robinhood_login_agent

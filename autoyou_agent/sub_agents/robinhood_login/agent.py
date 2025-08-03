@@ -2,11 +2,15 @@
 
 import os
 import keyring
+from dotenv import load_dotenv
 
 from google.adk import Agent
 from google.adk.tools import ToolContext
 
 import robin_stocks.robinhood as r
+
+# Load environment variables
+load_dotenv()
 
 from . import prompt
 

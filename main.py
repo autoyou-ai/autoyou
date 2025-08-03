@@ -70,6 +70,26 @@ from kivy.graphics import Color, Rectangle
 
 import keyring
 
+
+def ensure_env_file_exists():
+    """Ensure .env file exists in autoyou_agent directory with default values."""
+    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "autoyou_agent", ".env")
+    
+    if not os.path.exists(env_path):
+        # Create .env file with default values
+        env_content = "GOOGLE_API_KEY='<PLEASE_SET_IN_SETTINGS>'\nROOT_AGENT_MODEL='gemini-2.5-flash'\n"
+        
+        try:
+            with open(env_path, "w", encoding="utf-8") as f:
+                f.write(env_content)
+            print(f"Created .env file at {env_path}")
+        except Exception as e:
+            print(f"Error creating .env file: {e}")
+
+
+# Ensure .env file exists before any imports of autoyou_agent
+ensure_env_file_exists()
+
 # Import TinyDB session service for initialization
 try:
     from autoyou_agent.tinydb_session_service import TinyDBSessionService
