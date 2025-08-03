@@ -84,6 +84,4 @@ dist/
 *.temp
 
 # Compiled dependencies
-kivy-dependencies/build/
-kivy-dependencies/dist/
-kivy-dependencies/download/
+kivy-dependencies/
