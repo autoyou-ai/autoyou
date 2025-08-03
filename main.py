@@ -639,7 +639,7 @@ class ChatScreen(Screen):
             background_color=(0.2, 0.6, 1, 1),
             bold=True
         )
-        webview_btn.bind(on_release=self.open_in_safari)
+        webview_btn.bind(on_release=self.open_in_browser)
         content_layout.add_widget(webview_btn)
         
         # Alternative URL display
@@ -656,7 +656,7 @@ class ChatScreen(Screen):
         layout.add_widget(content_layout)
         self.add_widget(layout)
     
-    def open_in_safari(self, instance):
+    def open_in_browser(self, instance):
         """Open the ADK interface using platform-specific WebView."""
         import platform
         url = "http://localhost:8000/dev-ui/?app=autoyou_agent"
