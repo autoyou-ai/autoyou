@@ -1,0 +1,15 @@
+DISCLAIMER AND USER AGREEMENT
+
+By installing and using this application (the "App"), you acknowledge and agree to the following terms and conditions:
+
+1. **Informational Purpose Only** – This App is provided for demonstration purposes. It is not intended to provide trading advice or instructions. The App may display tools from the Google Agent Development Kit (ADK) and may allow you to interact with trading platforms such as Robinhood. Any information presented is for informational purposes only.
+
+2. **No Financial Advice** – The App and any example agents distributed with it (including those that return a hard‑coded "Hello" response) do not constitute financial advice. Decisions to buy, sell, or hold securities and other investments involve risk and should be made based on your own research and judgement. You should consult a licensed financial advisor before making any investment decisions.
+
+3. **User Responsibility** – You assume full responsibility for any actions taken through the App. The developers and distributors of this App will not be liable for any damages or losses arising from your use of the App or any reliance on information contained within it.
+
+4. **Account Credentials** – The App allows you to securely store your Robinhood credentials, one‑time password (OTP), and Google API key using your device’s keychain. You are responsible for maintaining the security of your account credentials.
+
+5. **Third‑Party Services** – The App may interface with third‑party services such as Google ADK and Robinhood. All third‑party services are governed by their own terms of service and privacy policies. The developers and distributors of this App are not affiliated with or endorsed by these third parties.
+
+By tapping “I Agree” you confirm that you understand and accept these terms and conditions. If you do not agree, do not use this App.

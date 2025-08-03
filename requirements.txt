@@ -1,0 +1,46 @@
+# Requirements for the Kivy ADK iOS app
+#
+# These packages are needed to build and run the application on
+# mobile platforms. Versions are pinned where appropriate to
+# provide consistency across environments. The package list
+# includes Kivy and the Kivy Garden WebView widget for embedding
+# web content, the Google Agent Development Kit (ADK) which
+# provides the web UI and agent infrastructure, the Generative AI
+# SDK, and the keyring library for securely storing user
+# credentials on the device.
+
+kivy
+kivy_garden
+google-adk
+google-generativeai
+keyring
+robin_stocks
+pywebview
+
+# AutoYou Agent Dependencies
+# Core ADK dependencies are assumed to be installed separately
+
+# TinyDB for session storage and analytics
+tinydb>=4.8.0
+
+# Robin Stocks for Robinhood API integration
+robin-stocks>=3.0.0
+
+# Environment variable management
+python-dotenv>=1.0.0
+
+# Additional dependencies for session management
+tzlocal>=5.0
+
+# Standard library dependencies (included for completeness)
+# These are typically included with Python but listed for clarity:
+# - asyncio (Python 3.4+)
+# - json (built-in)
+# - uuid (built-in)
+# - datetime (built-in)
+# - typing (Python 3.5+)
+# - collections (built-in)
+# - pathlib (Python 3.4+)
+# - logging (built-in)
+# - os (built-in)
+# - sys (built-in)
