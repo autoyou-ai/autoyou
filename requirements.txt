@@ -1,46 +1,118 @@
-# Requirements for the Kivy ADK iOS app
-#
-# These packages are needed to build and run the application on
-# mobile platforms. Versions are pinned where appropriate to
-# provide consistency across environments. The package list
-# includes Kivy and the Kivy Garden WebView widget for embedding
-# web content, the Google Agent Development Kit (ADK) which
-# provides the web UI and agent infrastructure, the Generative AI
-# SDK, and the keyring library for securely storing user
-# credentials on the device.
+# AutoYou Trading Agent - Complete Requirements
+# Comprehensive dependency list for the entire AutoYou project
+# Supports both mobile (Kivy) and web (FastAPI) deployment modes
 
-kivy
-kivy_garden
-google-adk
-google-generativeai
-keyring
-robin_stocks
-pywebview
+# ============================================================================
+# CORE FRAMEWORK DEPENDENCIES
+# ============================================================================
 
-# AutoYou Agent Dependencies
-# Core ADK dependencies are assumed to be installed separately
+# Google Agent Development Kit (ADK) - Core AI agent framework
+google-adk>=1.0.0
+google-generativeai>=0.8.0
 
-# TinyDB for session storage and analytics
+# ============================================================================
+# MOBILE APPLICATION DEPENDENCIES
+# ============================================================================
+
+# Kivy framework for cross-platform mobile apps
+kivy>=2.2.0
+kivy_garden>=0.1.5
+
+# WebView components for embedding web content
+pywebview>=4.4.0
+
+# ============================================================================
+# WEB APPLICATION DEPENDENCIES
+# ============================================================================
+
+# FastAPI web framework and ASGI server
+fastapi>=0.104.1
+uvicorn[standard]>=0.24.0
+
+# WebSocket support for real-time communication
+websockets>=12.0
+
+# ============================================================================
+# TRADING & FINANCIAL API INTEGRATION
+# ============================================================================
+
+# Robinhood API integration
+robin-stocks>=3.0.0
+
+# ============================================================================
+# DATA STORAGE & SESSION MANAGEMENT
+# ============================================================================
+
+# Lightweight database for session storage and analytics
 tinydb>=4.8.0
 
-# Robin Stocks for Robinhood API integration
-robin-stocks>=3.0.0
+# Timezone handling for session timestamps
+tzlocal>=5.0
+
+# ============================================================================
+# CONFIGURATION & ENVIRONMENT
+# ============================================================================
 
 # Environment variable management
 python-dotenv>=1.0.0
 
-# Additional dependencies for session management
-tzlocal>=5.0
+# ============================================================================
+# OPTIONAL WEB DEPENDENCIES
+# ============================================================================
+# These are included in the current requirements but not actively used
+# in the current codebase. Keeping for potential future features.
 
-# Standard library dependencies (included for completeness)
-# These are typically included with Python but listed for clarity:
-# - asyncio (Python 3.4+)
-# - json (built-in)
-# - uuid (built-in)
-# - datetime (built-in)
-# - typing (Python 3.5+)
-# - collections (built-in)
-# - pathlib (Python 3.4+)
-# - logging (built-in)
-# - os (built-in)
-# - sys (built-in)
+# Template engine (not currently used)
+# jinja2>=3.1.2
+
+# Form data parsing (not currently used)
+# python-multipart>=0.0.6
+
+# Async file operations (not currently used)
+# aiofiles>=23.2.1
+
+# HTTP client library (not currently used)
+# aiohttp>=3.9.0
+
+# Server-sent events (not currently used)
+# sse-starlette>=1.6.5
+
+# Data validation (not currently used)
+# pydantic>=2.5.0
+# pydantic-settings>=2.1.0
+
+# Structured logging (not currently used)
+# structlog>=23.2.0
+
+# Security libraries (not currently used)
+# cryptography>=41.0.0
+# passlib[bcrypt]>=1.7.4
+# python-jose[cryptography]>=3.3.0
+
+# ============================================================================
+# DEVELOPMENT & TESTING DEPENDENCIES
+# ============================================================================
+# Uncomment these for development work
+
+# Testing framework
+# pytest>=7.4.0
+# pytest-asyncio>=0.21.0
+# httpx>=0.25.0
+
+# ============================================================================
+# NOTES
+# ============================================================================
+# 
+# Standard library modules used (no installation required):
+# - asyncio, json, uuid, datetime, typing, collections, pathlib
+# - logging, os, sys, threading, time, subprocess, contextlib
+# 
+# The project uses a hybrid architecture supporting both:
+# 1. Mobile deployment via Kivy with embedded WebView
+# 2. Web deployment via FastAPI with ADK integration
+# 
+# Core functionality depends on:
+# - Google ADK for agent framework and web UI
+# - robin-stocks for Robinhood trading API
+# - TinyDB for local session storage
+# - python-dotenv for configuration management

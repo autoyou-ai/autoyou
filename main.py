@@ -7,14 +7,14 @@ exposes it on `localhost:8000`. The user is presented with a
 mandatory splash screen containing terms and conditions; only after
 agreeing may they proceed to the rest of the app. A settings screen
 allows the user to securely enter and store their Robinhood
-credentials, OTP and Google API key using the system keychain via
-the `keyring` library. The main screen is a simple home page with
+credentials, OTP and Google API key using JsonStore for cross-platform
+compatibility. The main screen is a simple home page with
 navigation to the settings and chat screens. The chat screen hosts
 the ADK dev UI inside a WebView.
 
 Key implementation details:
 
-* A `before_agent_callback` in `autoyou_agent/agent.py` returns a
+* A `before_agent_callback` in `robinhood_agent/agent.py` returns a
   `Content` object which causes the agent to skip its normal logic and
   immediately reply with "Hello"【812217260560387†L288-L297】. When the
   dev UI interacts with the agent, this callback ensures the
@@ -23,12 +23,11 @@ Key implementation details:
   `subprocess.Popen(["adk", "web", "--no-reload"])`. ADK expects to
   find a module with a global `root_agent` in the current working
   directory; running the server from the project root allows ADK to
-  discover the agent defined in `autoyou_agent/agent.py`【118314073243210†L588-L599】.
-* User credentials are stored via the `keyring` module. This uses
-  platform‑specific secure storage (e.g. Keychain on iOS/macOS).
-  Fields are left empty if no value has been saved yet. When the
-  user taps "Save", the values are persisted under the service name
-  ``autoyou_mobile_app`` and unique keys for each field.
+  discover the agent defined in `robinhood_agent/agent.py`【118314073243210†L588-L599】.
+* User credentials are stored via JsonStore for cross-platform
+  compatibility. Fields are left empty if no value has been saved yet.
+  When the user taps "Save", the values are persisted in a JSON file
+  in the app's user data directory.
 * The WebView is provided by the `kivy_garden.webview` garden widget.
   It points to `http://localhost:8000` by default. If the ADK
   process fails to start or is slow, the user may see a blank page
@@ -42,38 +41,57 @@ localhost is resolved by WebKit.
 
 from __future__ import annotations
 
+# Standard library imports
+import asyncio
+import logging
 import os
 import subprocess
 import sys
 import threading
 import time
+from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Optional
 
-# Configure Kivy for macOS high-DPI displays
+# Configure Kivy environment for cross-platform compatibility
 os.environ['KIVY_DPI'] = '96'
 os.environ['KIVY_METRICS_DENSITY'] = '1'
 os.environ['KIVY_WINDOW_ICON'] = ''
 
+# Third-party imports
+import uvicorn
+from fastapi import FastAPI
+
+# Kivy imports
 from kivy.app import App
+from kivy.core.window import Window
+from kivy.graphics import Color, Rectangle
 from kivy.lang import Builder
 from kivy.metrics import dp, sp
 from kivy.properties import ObjectProperty, StringProperty
+from kivy.storage.jsonstore import JsonStore
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
 from kivy.uix.label import Label
+from kivy.uix.popup import Popup
 from kivy.uix.screenmanager import Screen, ScreenManager
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.textinput import TextInput
 from kivy.uix.widget import Widget
-from kivy.core.window import Window
-from kivy.graphics import Color, Rectangle
 
-import keyring
+# ADK imports
+from google.adk.cli.fast_api import get_fast_api_app
+from google.adk.cli.utils import logs
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 
 
 def ensure_env_file_exists():
-    """Ensure .env file exists in autoyou_agent directory with default values."""
-    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "autoyou_agent", ".env")
+    """Ensure .env file exists in directory with default values."""
+    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
     
     if not os.path.exists(env_path):
         # Create .env file with default values
@@ -87,27 +105,22 @@ def ensure_env_file_exists():
             print(f"Error creating .env file: {e}")
 
 
-# Ensure .env file exists before any imports of autoyou_agent
+# Ensure .env file exists before any imports of robinhood_agent
 ensure_env_file_exists()
 
-# Import TinyDB session service for initialization
 try:
-    from autoyou_agent.tinydb_session_service import TinyDBSessionService
-except ImportError:
-    TinyDBSessionService = None
-
-try:
-    # Import the WebView widget from the Kivy garden. The user must
-    # install `kivy_garden.webview` via the requirements.txt.
+    # Primary WebView implementation for mobile deployment
     from kivy_garden.webview import WebView
-except Exception as e:  # pragma: no cover
-    WebView = None  # fallback placeholder
+except ImportError:
+    WebView = None
+    logger.warning("kivy_garden.webview not available - WebView functionality disabled")
 
 try:
-    # Import pywebview as an alternative to kivy_garden.webview
+    # Alternative WebView implementation
     import webview as pywebview
 except ImportError:
     pywebview = None
+    logger.info("pywebview not available - using primary WebView only")
 
 
 SERVICE_NAME = "autoyou_mobile_app"
@@ -117,59 +130,166 @@ KEY_OTP = "robinhood_otp"
 KEY_API_KEY = "google_api_key"
 
 
-def start_adk_web_server() -> subprocess.Popen:
-    """Launch the ADK dev UI as a background subprocess.
+def get_credentials_store():
+    """Get the JsonStore instance for storing credentials."""
+    from kivy.app import App
+    app = App.get_running_app()
+    if app is None:
+        # Fallback for when app is not running yet
+        data_dir = os.path.expanduser("~/.autoyou")
+        os.makedirs(data_dir, exist_ok=True)
+    else:
+        data_dir = app.user_data_dir
+    return JsonStore(os.path.join(data_dir, 'credentials.json'))
 
-    ADK needs to run in the parent directory of the agent package so that
-    it can automatically discover `root_agent`. This helper starts
-    `adk web` with `--no-reload` to disable the auto‑reloader (which
-    can create multiple processes)【118314073243210†L588-L599】. The caller is
-    responsible for terminating the returned process when the app
-    closes.
 
-    Returns:
-        A ``subprocess.Popen`` object representing the running
-        server process.
-    """
-    # Determine the project root: the directory containing this
-    # main.py file. ADK should be executed from here so it finds the
-    # `autoyou_agent` package in ``sys.path``.
-    project_root = os.path.dirname(os.path.abspath(__file__))
-
-    # Build the command. `--no-reload` avoids the NotImplementedError on
-    # some platforms and prevents multiple server instances from
-    # spawning. See ADK documentation for details【118314073243210†L588-L599】.
-    cmd = [
-        sys.executable,
-        "-m",
-        "google.adk.cli.adk_cli",
-        "web",
-        "--no-reload",
-    ]
-    # Fall back to the shorter `adk` command if available in PATH.
+def get_credential(key: str) -> str:
+    """Get a credential from JsonStore."""
+    store = get_credentials_store()
     try:
-        # Check if 'adk' is executable in PATH
-        _ = subprocess.run(
-            ["adk", "--help"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=False,
-        )
-        cmd = ["adk", "web", "--no-reload"]
-    except Exception:
+        return store.get('credentials')[key]
+    except KeyError:
+        return ""
+
+
+def set_credential(key: str, value: str):
+    """Set a credential in JsonStore."""
+    store = get_credentials_store()
+    try:
+        credentials = store.get('credentials')
+    except KeyError:
+        credentials = {}
+    credentials[key] = value
+    store.put('credentials', **credentials)
+
+
+def delete_credential(key: str):
+    """Delete a credential from JsonStore."""
+    store = get_credentials_store()
+    try:
+        credentials = store.get('credentials')
+        if key in credentials:
+            del credentials[key]
+            store.put('credentials', **credentials)
+    except KeyError:
         pass
 
-    # Launch the process. We detach stdio so that the Kivy app does not
-    # block. The server will log to the console of the iOS host when
-    # running via Xcode.
-    process = subprocess.Popen(
-        cmd,
-        cwd=project_root,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        stdin=subprocess.DEVNULL,
+def create_autoyou_web_server(
+    host: str = "127.0.0.1",
+    port: int = 8000,
+    reload: bool = True,
+    log_level: str = "INFO",
+    allow_origins: Optional[list[str]] = None,
+) -> FastAPI:
+    """
+    Create a customized ADK web server for the AutoYou agent.
+    
+    Args:
+        host: Host to bind the server to
+        port: Port to bind the server to
+        reload: Whether to enable auto-reload
+        log_level: Logging level
+        allow_origins: List of allowed CORS origins
+        
+    Returns:
+        FastAPI application instance
+    """
+    # Setup logging
+    logs.setup_adk_logger(getattr(logging, log_level.upper()))
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        """Lifespan context manager for the FastAPI app."""
+        print(f"""
++-----------------------------------------------------------------------------+
+| AutoYou ADK Web Server started                                              |
+|                                                                             |
+| Agent: AutoYou Trading Agent                                                |
+| Location: robinhood_agent/agent.py                                            |
+| Access at: http://{host}:{port}/dev-ui/?app=robinhood_agent{" " * (25 - len(host) - len(str(port)))}|
++-----------------------------------------------------------------------------+
+""")
+        yield  # Startup is done, now app is running
+        print("""
++-----------------------------------------------------------------------------+
+| AutoYou ADK Web Server shutting down...                                     |
++-----------------------------------------------------------------------------+
+""")
+    
+    # Get the agents directory (current directory containing robinhood_agent)
+    current_dir = Path(__file__).parent.resolve()
+    agents_dir = str(current_dir)
+    
+    logger.info(f"AutoYou agents directory: {agents_dir}")
+    
+    # Create the FastAPI app using ADK's get_fast_api_app
+    app = get_fast_api_app(
+        agents_dir=agents_dir,
+        session_service_uri=None,  # Use in-memory session service
+        artifact_service_uri=None,  # Use in-memory artifact service
+        memory_service_uri=None,   # Use in-memory memory service
+        eval_storage_uri=None,     # Use local eval storage
+        allow_origins=allow_origins or ["*"],  # Allow all origins for development
+        web=True,                  # Enable web UI
+        trace_to_cloud=False,      # Disable cloud tracing for local development
+        lifespan=lifespan,
+        a2a=False,                 # Disable A2A protocol
+        host=host,
+        port=port,
+        reload_agents=False,       # Disable agent hot-reloading to avoid YAML config issues
     )
-    return process
+    
+    return app
+
+def start_adk_web_server(
+    host: str = "127.0.0.1",
+    port: int = 8000,
+    reload: bool = False,
+    log_level: str = "INFO"
+) -> threading.Thread:
+    """Launch the ADK web server in a background thread.
+
+    This starts the customized ADK web server that directly points to
+    the AutoYou agent, providing the full ADK interface and chat functionality.
+    The server runs in a separate thread to avoid blocking the Kivy UI.
+
+    Args:
+        host: Host to bind the server to (default: 127.0.0.1)
+        port: Port to bind the server to (default: 8000)
+        reload: Whether to enable auto-reload (default: False for production)
+        log_level: Logging level (default: INFO)
+
+    Returns:
+        A ``threading.Thread`` object representing the running
+        server thread.
+    """
+    def run_server():
+        try:
+            app = create_autoyou_web_server(
+                host=host,
+                port=port,
+                reload=reload,
+                log_level=log_level,
+            )
+        
+            # Configure uvicorn
+            config = uvicorn.Config(
+                app,
+                host=host,
+                port=port,
+                reload=reload,
+                log_level=log_level.lower(),
+            )
+            
+            # Run the server
+            server = uvicorn.Server(config)
+            server.run()
+        except Exception as e:
+            print(f"Error starting ADK web server: {e}")
+    
+    # Start server in background thread
+    server_thread = threading.Thread(target=run_server, daemon=True)
+    server_thread.start()
+    return server_thread
 
 
 class SplashScreen(Screen):
@@ -206,7 +326,7 @@ class SplashScreen(Screen):
         layout.add_widget(title_label)
         
         # Load the terms from the assets folder
-        terms_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "terms.txt")
+        terms_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "terms.txt")
         try:
             with open(terms_path, "r", encoding="utf-8") as f:
                 terms_text = f.read()
@@ -285,7 +405,7 @@ class SplashScreen(Screen):
         """Handle acceptance of the terms and navigate forward."""
         app: KivyAdkApp = App.get_running_app()  # type: ignore[assignment]
         # Determine next screen: if credentials exist, go to home; else go to settings
-        existing_user = keyring.get_password(SERVICE_NAME, KEY_USERNAME)
+        existing_user = get_credential(KEY_USERNAME)
         if existing_user:
             app.manager.current = "home"
         else:
@@ -296,9 +416,9 @@ class SettingsScreen(Screen):
     """Screen allowing the user to enter and save credentials.
 
     Contains text inputs for the Robinhood username, password, OTP and
-    Google API key. Values are saved into the system keyring using
-    ``keyring.set_password``. A "Save" button persists the data and
-    then returns to the home screen.
+    Google API key. Values are saved using JsonStore for cross-platform
+    compatibility. A "Save" button persists the data and then returns
+    to the home screen.
     """
 
     def __init__(self, **kwargs):
@@ -377,7 +497,7 @@ class SettingsScreen(Screen):
             
             # Input field with better mobile styling
             input_field = TextInput(
-                text=keyring.get_password(SERVICE_NAME, key) or "",
+                text=get_credential(key) or "",
                 multiline=False,
                 password=password,
                 size_hint=(1, None),
@@ -429,18 +549,15 @@ class SettingsScreen(Screen):
         for key, input_field in self.inputs.items():
             value = input_field.text.strip()
             if value:
-                keyring.set_password(SERVICE_NAME, key, value)
+                set_credential(key, value)
                 # Store Google API key for .env file update
                 if key == KEY_API_KEY:
                     google_api_key = value
             else:
-                # If the user clears a field, remove it from the keyring
-                try:
-                    keyring.delete_password(SERVICE_NAME, key)
-                except keyring.errors.PasswordDeleteError:
-                    pass
+                # If the user clears a field, remove it from the credentials
+                delete_credential(key)
         
-        # Update .env file in autoyou_agent directory if Google API key is provided
+        # Update .env file in robinhood_agent directory if Google API key is provided
         if google_api_key:
             self._update_env_file(google_api_key)
         
@@ -448,12 +565,12 @@ class SettingsScreen(Screen):
         app.manager.current = "home"
     
     def _update_env_file(self, google_api_key: str):
-        """Update or create .env file in autoyou_agent directory with Google API key."""
-        env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "autoyou_agent", ".env")
+        """Update or create .env file in robinhood_agent directory with Google API key."""
+        env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
         
         # Content for the .env file
         env_content = f"GOOGLE_API_KEY='{google_api_key}'\nROOT_AGENT_MODEL='gemini-2.5-flash'\n"
-        
+        os.environ["GOOGLE_API_KEY"] = google_api_key
         try:
             with open(env_path, "w", encoding="utf-8") as f:
                 f.write(env_content)
@@ -479,7 +596,7 @@ class HomeScreen(Screen):
         
         # App title/logo area
         title_label = Label(
-            text="ADK Demo App",
+            text="Robinhood Chat Trading Agent",
             font_size=sp(72),
             size_hint=(1, None),
             height=dp(120),
@@ -609,7 +726,7 @@ class ChatScreen(Screen):
         
         # Welcome message
         welcome_label = Label(
-            text="ADK Chat Interface",
+            text="Robinhood Chat Trading Agent",
             font_size=sp(56),
             halign="center",
             valign="middle",
@@ -621,7 +738,7 @@ class ChatScreen(Screen):
         
         # Description
         desc_label = Label(
-            text="Click the button below to open the ADK interface in your browser.",
+            text="Click the button below to open the chat interface in your browser.",
             font_size=sp(36),
             halign="center",
             valign="middle",
@@ -632,7 +749,7 @@ class ChatScreen(Screen):
         
         # WebView launch button
         webview_btn = Button(
-            text="🌐 Open ADK Interface",
+            text="🌐 Open Chat Interface",
             size_hint=(1, None),
             height=dp(120),
             font_size=sp(44),
@@ -644,7 +761,7 @@ class ChatScreen(Screen):
         
         # Alternative URL display
         url_label = Label(
-            text="Direct URL: http://localhost:8000/dev-ui/?app=autoyou_agent",
+            text="Direct URL: http://localhost:8000",
             font_size=sp(32),
             halign="center",
             valign="middle",
@@ -657,36 +774,81 @@ class ChatScreen(Screen):
         self.add_widget(layout)
     
     def open_in_browser(self, instance):
-        """Open the ADK interface using platform-specific WebView."""
+        """Open the chat interface using platform-specific WebView."""
         import platform
-        url = "http://localhost:8000/dev-ui/?app=autoyou_agent"
+        import webbrowser
+        
+        # Use 127.0.0.1 for better mobile compatibility
+        url = "http://127.0.0.1:8000/dev-ui/?app=robinhood_agent"
         
         system = platform.system().lower()
+        logger.info(f"Opening WebView on platform: {system}")
         
         try:
-            if system == 'ios':
-                # Use iOS native WebView
-                from ios import IOSWebView
-                webview = IOSWebView()
-                webview.load_url(url)
-            elif system == 'android':
-                # Use Android WebView
-                from webview import WebView as AndroidWebView
-                AndroidWebView(url)
-            else:
-                # Fallback for macOS/desktop - use webbrowser module
-                import webbrowser
-                webbrowser.open(url)
-        except ImportError as e:
-            print(f"Platform-specific WebView not available: {e}")
-            # Fallback to webbrowser module
-            import webbrowser
+            # Check for Kivy platform detection first
+            from kivy.utils import platform as kivy_platform
+            
+            if kivy_platform == 'android':
+                # Android-specific WebView handling
+                try:
+                    from android.runnable import run_on_ui_thread
+                    from jnius import autoclass, cast
+                    
+                    # Use Android WebView through Pyjnius
+                    WebView = autoclass('android.webkit.WebView')
+                    activity = autoclass('org.kivy.android.PythonActivity').mActivity
+                    
+                    @run_on_ui_thread
+                    def open_webview():
+                        webview = WebView(activity)
+                        webview.loadUrl(url)
+                    
+                    open_webview()
+                    logger.info("Opened Android WebView successfully")
+                    return
+                except ImportError:
+                    logger.warning("Android WebView not available, using fallback")
+            
+            elif kivy_platform == 'ios':
+                # iOS-specific WebView handling
+                try:
+                    from pyobjus import autoclass
+                    
+                    # Use iOS WebView through PyObjus
+                    NSURL = autoclass('NSURL')
+                    NSURLRequest = autoclass('NSURLRequest')
+                    WKWebView = autoclass('WKWebView')
+                    
+                    webview = WKWebView.alloc().init()
+                    nsurl = NSURL.URLWithString_(url)
+                    request = NSURLRequest.requestWithURL_(nsurl)
+                    webview.loadRequest_(request)
+                    
+                    logger.info("Opened iOS WebView successfully")
+                    return
+                except ImportError:
+                    logger.warning("iOS WebView not available, using fallback")
+            
+            # Fallback to system default browser
             webbrowser.open(url)
+            logger.info("Opened in system default browser")
+            
         except Exception as e:
-            print(f"Error opening WebView: {e}")
-            # Final fallback
-            import webbrowser
-            webbrowser.open(url)
+            logger.error(f"Error opening WebView: {e}")
+            # Final fallback to system browser
+            try:
+                webbrowser.open(url)
+                logger.info("Fallback to system browser successful")
+            except Exception as fallback_error:
+                logger.error(f"All WebView methods failed: {fallback_error}")
+                # Show error message to user
+                from kivy.uix.popup import Popup
+                popup = Popup(
+                    title='Error',
+                    content=Label(text=f'Cannot open WebView.\nPlease visit {url} manually.'),
+                    size_hint=(0.8, 0.4)
+                )
+                popup.open()
     
 
     
@@ -697,7 +859,7 @@ class KivyAdkApp(App):
     """Main application class."""
 
     manager: ScreenManager
-    _adk_process: Optional[subprocess.Popen] = None
+    _web_server_thread: Optional[threading.Thread] = None
 
     def build(self) -> ScreenManager:
         # Configure window for better resizing flexibility
@@ -728,30 +890,35 @@ class KivyAdkApp(App):
         return self.manager
 
     def on_start(self) -> None:
-        """Start the ADK dev server and initialize TinyDB when the app launches."""
-        # Initialize TinyDB session service
-        if TinyDBSessionService:
-            try:
-                # Initialize the session service to create the database file
-                session_service = TinyDBSessionService("autoyou_sessions.json")
-                print("TinyDB session service initialized successfully")
-            except Exception as e:
-                print(f"Failed to initialize TinyDB session service: {e}")
+        """Start the uvicorn web server and initialize TinyDB when the app launches."""        
         
-        # Launch the ADK server in a background thread to avoid blocking the UI
-        def launch_server():
-            self._adk_process = start_adk_web_server()
-
-        threading.Thread(target=launch_server, daemon=True).start()
+        # Launch the ADK web server in a background thread
+        try:
+            self._web_server_thread = start_adk_web_server()
+            print("ADK web server started in background thread")
+        except Exception as e:
+            print(f"Failed to start ADK web server: {e}")
 
     def on_stop(self) -> None:
-        """Terminate the ADK server when the app exits."""
-        if self._adk_process and self._adk_process.poll() is None:
+        """Clean up when the app exits."""
+        if self._web_server_thread and self._web_server_thread.is_alive():
             try:
-                self._adk_process.terminate()
-            except Exception:
-                pass
+                print("Web server will terminate when app exits (daemon thread)")
+            except Exception as e:
+                print(f"Error during web server cleanup: {e}")
+
+
+def main():
+    """Main entry point for the AutoYou Kivy application."""
+    try:
+        # Initialize and run the Kivy application
+        app = KivyAdkApp()
+        app.run()
+    except Exception as e:
+        logger.error(f"Failed to start AutoYou application: {e}")
+        print(f"Error: {e}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
-    KivyAdkApp().run()
+    main()

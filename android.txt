@@ -1,0 +1,3 @@
+title=AutoYou
+author=WillowStorey
+orientation=portrait
